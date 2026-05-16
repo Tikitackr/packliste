@@ -992,31 +992,49 @@
     rtf += '}';
 
     const filename = 'Packliste_Fussballturnier.rtf';
-    let downloaded = false;
+    const blob = new Blob([rtf], { type: 'application/rtf' });
+
+    // 1. Versuch: iOS / Android Share-Sheet (direkt in Pages / WhatsApp / Mail öffnen)
     try {
-      const blob = new Blob([rtf], { type: 'application/rtf' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.rel = 'noopener';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      downloaded = true;
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      const file = new File([blob], filename, { type: 'application/rtf' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: 'Packliste Fußballturnier'
+        }).catch(err => {
+          // Falls Nutzer Share abbricht oder Share fehlschlägt → klassischer Download
+          if (err && err.name !== 'AbortError') triggerDownload();
+        });
+        return;
+      }
     } catch (err) {
-      console.error('Blob-Download fehlgeschlagen:', err);
+      console.warn('Share API nicht verfügbar:', err);
     }
 
-    if (!downloaded) {
+    // 2. Versuch: Standard-Download (Desktop / Android-Browser)
+    triggerDownload();
+
+    function triggerDownload() {
       try {
-        const dataUrl = 'data:application/rtf;charset=utf-8,' + encodeURIComponent(rtf);
-        const win = window.open(dataUrl, '_blank');
-        if (!win) window.location.href = dataUrl;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
       } catch (err) {
-        alert('Export konnte nicht gestartet werden.');
+        // 3. Fallback: Data-URL
+        try {
+          const dataUrl = 'data:application/rtf;charset=utf-8,' + encodeURIComponent(rtf);
+          const win = window.open(dataUrl, '_blank');
+          if (!win) window.location.href = dataUrl;
+        } catch (e) {
+          alert('Export konnte nicht gestartet werden.');
+        }
       }
     }
   });
