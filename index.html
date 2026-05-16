@@ -872,59 +872,153 @@
     window.print();
   });
 
-  // Word / Pages export (.doc, openbar in Word, Pages, LibreOffice, Google Docs)
-  document.getElementById('wordBtn').addEventListener('click', () => {
-    const title = 'Packliste – Fußballturnier';
-    const subtitle = 'Zweitägig mit Zeltübernachtung';
-    let body = '';
+  // Word / Pages export (.rtf – funktioniert in Word, Pages, LibreOffice, TextEdit, Google Docs)
+  function rtfEscape(s) {
+    if (s == null) return '';
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      // Surrogate-Paare (Emojis) überspringen – nicht alle RTF-Reader verstehen sie
+      if (code >= 0xD800 && code <= 0xDBFF) {
+        if (i + 1 < s.length) {
+          const lo = s.charCodeAt(i + 1);
+          if (lo >= 0xDC00 && lo <= 0xDFFF) { i++; continue; }
+        }
+        continue;
+      }
+      if (code === 0x5C) out += '\\\\';
+      else if (code === 0x7B) out += '\\{';
+      else if (code === 0x7D) out += '\\}';
+      else if (code === 0x0A) out += '\\line ';
+      else if (code === 0x0D) {}
+      else if (code < 0x80) out += s.charAt(i);
+      else {
+        let n = code;
+        if (n > 32767) n -= 65536;
+        out += '\\u' + n + '?';
+      }
+    }
+    return out;
+  }
 
-    // Profil-Block (nur wenn mindestens 1 Feld ausgefüllt)
-    const profileFields = document.querySelectorAll('[data-profile]');
-    const filledFields = Array.from(profileFields).filter(el => el.value && el.value.trim());
-    if (filledFields.length > 0) {
-      body += '<h2 style="color:#0a7d3e;border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:6px;font-family:Calibri,Arial,sans-serif;">👤 Kind-Profil / Notfall-Infos</h2>';
-      body += '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;width:100%;">';
-      filledFields.forEach(el => {
-        const label = el.dataset.profileLabel || el.dataset.profile;
-        const val = el.value.trim().replace(/\n/g, '<br/>');
-        body += '<tr><td style="padding:3px 12px 3px 0;font-weight:bold;vertical-align:top;white-space:nowrap;">' + escapeHtml(label) + '</td><td style="padding:3px 0;vertical-align:top;border-bottom:1px solid #eee;">' + val.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&lt;br\/&gt;/g,'<br/>') + '</td></tr>';
-      });
-      body += '</table>';
+  function stripLeadingEmoji(s) {
+    // Entfernt führende Emojis/Symbole bis zum ersten Buchstaben
+    return s.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  }
+
+  document.getElementById('wordBtn').addEventListener('click', () => {
+    const titleText = 'Packliste – Fußballturnier';
+    const subtitleText = 'Zweitägig mit Zeltübernachtung';
+
+    // Farbtabelle (passend zum HTML-Design)
+    // 1 = Akzent-Grün #0a7d3e, 2 = Muted-Gray #6b7280, 3 = Text #1a1a1a
+    // 4 = Border #e5e7eb, 5 = Done-Gray #9ca3af, 6 = Hellgrün #e6f4ec
+    let rtf = '{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0';
+    rtf += '{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fnil\\fcharset0 Calibri Light;}}';
+    rtf += '{\\colortbl;';
+    rtf += '\\red10\\green125\\blue62;';
+    rtf += '\\red107\\green114\\blue128;';
+    rtf += '\\red26\\green26\\blue26;';
+    rtf += '\\red229\\green231\\blue235;';
+    rtf += '\\red156\\green163\\blue175;';
+    rtf += '\\red230\\green244\\blue236;';
+    rtf += '}';
+    rtf += '\\f0\\fs22\\cf3 ';
+
+    // ───── Titel ─────
+    rtf += '\\pard\\sb0\\sa40\\f1\\fs48\\b\\cf1 ' + rtfEscape(titleText) + '\\par ';
+    rtf += '\\pard\\sb0\\sa360\\f0\\fs24\\b0\\cf2 ' + rtfEscape(subtitleText) + '\\par ';
+
+    // Hilfsfunktion: Section-Heading mit grüner Unterstreichung
+    function sectionHeader(text) {
+      return '\\pard\\sb280\\sa140\\keepn\\brdrb\\brdrs\\brdrw20\\brdrcf1\\f1\\fs30\\b\\cf1 '
+        + rtfEscape(text) + '\\par ';
     }
 
+    // ───── Profil-Block ─────
+    const allProfileFields = Array.from(document.querySelectorAll('[data-profile]'));
+    if (allProfileFields.length > 0) {
+      rtf += sectionHeader('Kind-Profil / Notfall-Infos');
+
+      const groupBefore = {
+        'name': 'Persönliches',
+        'eltern1_name': 'Notfallkontakte',
+        'kasse': 'Medizinisch'
+      };
+      allProfileFields.forEach(el => {
+        const key = el.dataset.profile;
+        const label = el.dataset.profileLabel || key;
+        const val = (el.value || '').trim();
+        if (groupBefore[key]) {
+          rtf += '\\pard\\sb160\\sa60\\f0\\fs18\\b\\cf2 '
+            + rtfEscape(groupBefore[key].toUpperCase()) + '\\par ';
+        }
+        rtf += '\\pard\\sb0\\sa40\\f0\\fs22\\b0\\cf3 ';
+        if (val) {
+          rtf += '{\\b\\cf3 ' + rtfEscape(label) + ':}  \\cf3 ' + rtfEscape(val) + '\\par ';
+        } else {
+          rtf += '{\\b\\cf3 ' + rtfEscape(label) + ':}  \\cf5\\ul ____________________________\\ul0\\cf3\\par ';
+        }
+      });
+    }
+
+    // ───── Listen-Abschnitte ─────
     document.querySelectorAll('.section').forEach(section => {
-      const heading = section.querySelector('h2').innerText.trim();
-      body += '<h2 style="color:#0a7d3e;border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:18px;font-family:Calibri,Arial,sans-serif;">' + escapeHtml(heading) + '</h2>';
-      body += '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">';
+      const heading = stripLeadingEmoji(section.querySelector('h2').innerText.trim());
+      rtf += sectionHeader(heading);
       section.querySelectorAll('li.item').forEach(li => {
         const label = li.dataset.label;
         const isDone = li.classList.contains('done');
-        const box = isDone ? '☑' : '☐';
-        body += '<tr><td style="padding:2px 8px 2px 0;vertical-align:top;font-size:14pt;line-height:1;">' + box + '</td><td style="padding:2px 0;">' + escapeHtml(label) + '</td></tr>';
+        if (isDone) {
+          // Abgehakter Punkt: grüne Box ☑, Text grau & durchgestrichen
+          rtf += '\\pard\\fi-340\\li340\\tx340\\sb0\\sa50\\f0\\fs22\\cf3 ';
+          rtf += '{\\fs28\\cf1\\u9745?}\\tab ';
+          rtf += '{\\cf5\\strike ' + rtfEscape(label) + '\\strike0}\\par ';
+        } else {
+          // Offener Punkt: leere Box ☐, Text normal
+          rtf += '\\pard\\fi-340\\li340\\tx340\\sb0\\sa50\\f0\\fs22\\cf3 ';
+          rtf += '{\\fs28\\cf5\\u9744?}\\tab ';
+          rtf += rtfEscape(label) + '\\par ';
+        }
       });
-      body += '</table>';
     });
 
-    const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta charset="UTF-8"><title>' + escapeHtml(title) + '</title>' +
-      '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->' +
-      '<style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;}h1{color:#0a7d3e;font-size:20pt;margin-bottom:2px;}p.sub{color:#555;margin-top:0;font-size:11pt;}</style>' +
-      '</head><body>' +
-      '<h1>' + escapeHtml(title) + '</h1>' +
-      '<p class="sub">' + escapeHtml(subtitle) + '</p>' +
-      body +
-      '<p style="margin-top:18px;padding:8px;background:#e6f4ec;border-left:3px solid #0a7d3e;font-family:Calibri,Arial,sans-serif;font-size:10pt;"><b>💡 Tipp:</b> Kleidung am besten in komplette Outfits packen und nasse/schmutzige Sachen in separaten Beuteln sammeln.</p>' +
-      '</body></html>';
+    // ───── Tipp-Box (grüner linker Rand) ─────
+    rtf += '\\pard\\sb400\\sa120\\li200\\ri200\\brdrl\\brdrs\\brdrw60\\brdrcf1\\f0\\fs22\\i\\cf3 ';
+    rtf += '{\\b\\cf1 Tipp:  }\\cf3 ';
+    rtf += rtfEscape('Kleidung am besten in komplette Outfits packen und nasse/schmutzige Sachen in separaten Beuteln sammeln.');
+    rtf += '\\par ';
 
-    const blob = new Blob(['﻿' + html], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Packliste_Fussballturnier.doc';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    rtf += '}';
+
+    const filename = 'Packliste_Fussballturnier.rtf';
+    let downloaded = false;
+    try {
+      const blob = new Blob([rtf], { type: 'application/rtf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      downloaded = true;
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err) {
+      console.error('Blob-Download fehlgeschlagen:', err);
+    }
+
+    if (!downloaded) {
+      try {
+        const dataUrl = 'data:application/rtf;charset=utf-8,' + encodeURIComponent(rtf);
+        const win = window.open(dataUrl, '_blank');
+        if (!win) window.location.href = dataUrl;
+      } catch (err) {
+        alert('Export konnte nicht gestartet werden.');
+      }
+    }
   });
 
   setupProfile();
